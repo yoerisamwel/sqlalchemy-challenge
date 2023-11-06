@@ -1,6 +1,5 @@
 # Import the dependencies.
 import datetime as dt
-import sqlalchemy
 from sqlalchemy.ext.automap import automap_base
 from sqlalchemy.orm import Session
 from sqlalchemy import create_engine, func
@@ -56,6 +55,7 @@ def app_func_stations():
             'elevation': station.elevation
         }
         stations_list.append(station_dictionary)
+        return stations_list
 
 def app_func_tobs():
     stations_counts = session.query(measurement_data.station, func.count(measurement_data.station)). \
@@ -67,7 +67,18 @@ def app_func_tobs():
     df = df[df['station'] == station]
     df['date'] = pd.to_datetime(df['date'])
     df_delta = df[df['date'] >= df['date'].max() - relativedelta(days=364)]
-    return df_delta
+    df = df_delta.to_json()
+    return df
+
+def date_validate(date):
+    check_pass = False
+    try:
+        year, month, day = date.split('-')
+        dt.datetime(int(year), int(month), int(day))
+        check_pass = True
+    except:
+        return check_pass
+    return check_pass
 
 @app.route("/")
 def home():
@@ -121,8 +132,47 @@ def get_stations():
 @app.route('/tobs')
 def get_tobs():
     output = app_func_tobs()
-    return jsonify(output)
+    return output
 
+@app.route('/<start>')
+def get_temp_start(start):
+    start_date = date_validate(start)
+    if start_date:
+        query = session.query(func.min(measurement_data.tobs), func.max(measurement_data.tobs),
+                              func.avg(measurement_data.tobs)).filter(measurement_data.date >= start).all()
+        session.close()
+        if not query[0][0] is None:
+            result = []
+            result.append({
+                'min': query[0][0],
+                'max': query[0][1],
+                'avg': query[0][2]
+            })
+            return jsonify(result)
+        return jsonify({"Date entry error"}), 404
+    return jsonify({"Date entry error"}), 404
+
+
+@app.route('/<start>/<end>')
+def get_temp_start_end(start, end):
+    start_date = date_validate(start)
+    end_date = date_validate(end)
+    if start_date and end_date:
+        if not start.replace('-', '') > end.replace('-', ''):
+            query = session.query(func.min(measurement_data.tobs), func.max(measurement_data.tobs), func.avg(measurement_data.tobs)). \
+                filter(measurement_data.date >= start, measurement_data.date <= end).all()
+            session.close()
+            if not query[0][0] is None:
+                result = []
+                result.append({
+                    'min': query[0][0],
+                    'max': query[0][1],
+                    'avg': query[0][2]
+                })
+                return jsonify(result)
+            return jsonify({"Date entry error."}), 404
+        return jsonify({"Date entry error"}), 404
+    return jsonify({"Date entry error"}), 404
 
 if __name__ == "__main__":
     app.run(debug=True)
